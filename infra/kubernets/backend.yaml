@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wt-backend
+  labels:
+    app: wt-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wt-backend
+  template:
+    metadata:
+      labels:
+        app: wt-backend
+    spec:
+      containers:
+        - name: backend
+          image: watchtogether/backend:latest
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - secretRef:
+                name: wt-backend-secrets
+          env:
+            - name: PORT
+              value: "5000"
+            - name: NODE_ENV
+              value: "production"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wt-backend-service
+spec:
+  selector:
+    app: wt-backend
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wt-backend-secrets
+type: Opaque
+stringData:
+  MONGO_URI: "mongodb://mongo-service:27017/watchtogether"
+  REDIS_URL: "redis://redis-service:6379"
+  JWT_SECRET: "CHANGE_THIS_IN_PRODUCTION"
+  CLIENT_URL: "https://yourdomain.com"
+  STREAM_SERVER_URL: "http://wt-stream-service:8080"

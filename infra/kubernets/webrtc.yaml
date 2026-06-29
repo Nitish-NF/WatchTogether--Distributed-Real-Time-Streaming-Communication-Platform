@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wt-webrtc
+  labels:
+    app: wt-webrtc
+spec:
+  # WebRTC with mediasoup works best with 1 replica per node (host networking)
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wt-webrtc
+  template:
+    metadata:
+      labels:
+        app: wt-webrtc
+    spec:
+      # Host network required so mediasoup UDP ports are reachable
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: webrtc
+          image: watchtogether/webrtc:latest
+          ports:
+            - containerPort: 4000
+              protocol: TCP
+            # mediasoup RTP/RTCP UDP range
+            - containerPort: 10000
+              protocol: UDP
+            - containerPort: 10999
+              protocol: UDP
+          env:
+            - name: WEBRTC_PORT
+              value: "4000"
+            - name: NODE_ENV
+              value: "production"
+            - name: MEDIASOUP_LISTEN_IP
+              value: "0.0.0.0"
+            - name: MEDIASOUP_ANNOUNCED_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: CLIENT_URL
+              value: "https://yourdomain.com"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wt-webrtc-service
+spec:
+  selector:
+    app: wt-webrtc
+  ports:
+    - name: http
+      protocol: TCP
+      port: 4000
+      targetPort: 4000
+  type: ClusterIP

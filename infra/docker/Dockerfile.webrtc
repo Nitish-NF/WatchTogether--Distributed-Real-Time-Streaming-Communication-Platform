@@ -1,0 +1,47 @@
+# ── Stage 1: Build native modules ───────────────────────────
+# mediasoup requires build tools to compile its C++ bindings.
+# We install them here and discard this stage afterward,
+# keeping the final image lean.
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache python3 make g++ linux-headers
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+# ── Stage 2: Runtime image ───────────────────────────────────
+FROM node:20-alpine
+
+# Create non-root user
+# mediasoup UDP ports are > 1024 so non-root is fine
+RUN addgroup -S app && adduser -S app -G app
+
+WORKDIR /app
+
+# Copy compiled node_modules (includes mediasoup native bindings)
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy source and config
+COPY src/    ./src/
+COPY config/ ./config/
+
+# Set ownership
+RUN chown -R app:app /app
+
+# Switch to non-root user
+USER app
+
+# HTTP signaling port
+EXPOSE 4000
+
+# UDP range for mediasoup RTP/RTCP media
+# NOTE: when using network_mode: host in compose,
+# these EXPOSE declarations are informational only
+EXPOSE 10000-10999/udp
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD wget -qO- http://localhost:4000/health || exit 1
+
+CMD ["node", "src/server.js"]

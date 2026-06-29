@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+
+# Build
+dist
+build
+
+# Environment
+.env
+.env.*
+
+# Logs
+logs
+*.log
+
+# Coverage
+coverage
+
+# Cache
+.cache
+.vite
+.eslintcache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+
+# Temporary
+temp
+tmp
+
+# Runtime uploads
+uploads/
+thumbnails/
+output/
+
+# Database dumps
+dump
+data
+
+# Redis (if used)
+dump.rdb
+appendonly.aof

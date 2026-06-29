@@ -1,0 +1,26 @@
+{
+  "iceServers": [
+    {
+      "urls": "stun:stun.l.google.com:19302"
+    },
+    {
+      "urls": "stun:stun1.l.google.com:19302"
+    },
+    {
+      "urls": "turn:openrelay.metered.ca:80",
+      "username": "openrelayproject",
+      "credential": "openrelayproject"
+    },
+    {
+      "urls": "turn:your-turn-server.com:3478?transport=tcp",
+      "username": "watchtogether",
+      "credential": "change_this_credential"
+    },
+    {
+      "urls": "turns:your-turn-server.com:5349",
+      "username": "watchtogether",
+      "credential": "change_this_credential"
+    }
+  ],
+  "note": "Replace 'your-turn-server.com', 'watchtogether', and 'change_this_credential' with your actual TURN server details. Free options: Metered.ca (https://www.metered.ca/stun-server), Open Relay (https://www.metered.ca/tools/openrelay). Self-hosted: coturn (https://github.com/coturn/coturn)"
+}

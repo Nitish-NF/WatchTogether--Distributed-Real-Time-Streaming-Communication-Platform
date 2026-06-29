@@ -1,0 +1,169 @@
+version: '3.9'
+
+services:
+
+  # ── MongoDB ─────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: wt_mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    # Remove ports in production — only backend needs access internally
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: watchtogether
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # ── Redis ────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: wt_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    # Remove ports in production — only backend needs access internally
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend API ──────────────────────────────────────────
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: ../infra/docker/Dockerfile.backend
+    container_name: wt_backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/watchtogether
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-supersecret_change_in_production}
+      JWT_EXPIRES_IN: 7d
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      STREAM_SERVER_URL: http://stream:8080
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── WebRTC Server ────────────────────────────────────────
+  # IMPORTANT: network_mode: host is required for mediasoup UDP to work.
+  # This means this container is NOT on the Docker bridge network.
+  # Nginx cannot reach it via service name — it uses HOST IP instead.
+  # Also: ports: must be removed when using network_mode: host.
+  webrtc:
+    build:
+      context: ../../webrtc-server
+      dockerfile: ../infra/docker/Dockerfile.webrtc
+    container_name: wt_webrtc
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      WEBRTC_PORT: 4000
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      MEDIASOUP_LISTEN_IP: 0.0.0.0
+      MEDIASOUP_ANNOUNCED_IP: ${HOST_IP:-127.0.0.1}
+      NODE_ENV: ${NODE_ENV:-development}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Stream Server ────────────────────────────────────────
+  stream:
+    build:
+      context: ../../streaming
+      dockerfile: ../infra/docker/Dockerfile.stream
+    container_name: wt_stream
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - stream_uploads:/app/uploads
+      - stream_output:/app/output
+    environment:
+      STREAM_PORT: 8080
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      STREAM_SECRET: ${STREAM_SECRET:-dev_stream_secret}
+      NODE_ENV: ${NODE_ENV:-development}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Frontend ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: ../infra/docker/Dockerfile.frontend
+      args:
+        REACT_APP_SOCKET_URL: ${REACT_APP_SOCKET_URL:-http://localhost:5000}
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5000/api}
+    container_name: wt_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+      - stream
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Nginx Reverse Proxy ──────────────────────────────────
+  # NOTE: webrtc uses network_mode: host so nginx reaches it
+  # via host.docker.internal (Mac/Windows) or 172.17.0.1 (Linux).
+  # Set HOST_IP in your .env to match your server's IP.
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: wt_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_certs:/etc/nginx/certs
+    depends_on:
+      - frontend
+      - backend
+      - stream
+    # No depends_on webrtc — it's on host network, not Docker network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Linux support for host network access
+
+volumes:
+  mongo_data:
+  redis_data:
+  backend_logs:
+  stream_uploads:
+  stream_output:
+  nginx_certs:
