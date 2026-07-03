@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import movieService from '../services/movieService';
 import { followService } from '../services/followService';
 import shareService from '../services/shareService';
+import partyService from '../services/partyService';
 import conversationService from '../services/conversationService';
 import toast from 'react-hot-toast';
 import { useSearch } from '../hooks/useSearch';
@@ -154,7 +155,12 @@ export default function CreateParty() {
         name: roomName.trim() || movie.title,
         isPrivate, isLocked, maxViewers,
       });
+      console.log("created")
       if (invited.length > 0) {
+        // Register the invited users as participant records on the room
+        // (isPresent=false) — this is what lets them past the private-room
+        // join gate later, and lets the host see who's been invited.
+        await partyService.inviteParticipants(room._id, invited);
         await shareService.shareParty(room._id, invited);
         if (invited.length === 1) {
           const conv = await conversationService.createConversation(invited);

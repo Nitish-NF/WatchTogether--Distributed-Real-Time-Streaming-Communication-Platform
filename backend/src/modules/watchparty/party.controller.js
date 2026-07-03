@@ -8,5 +8,6 @@ const getMyParties   = asyncHandler(async (req, res) => sendSuccess(res, await p
 const closeRoom      = asyncHandler(async (req, res) => sendSuccess(res, await partyService.closeRoom(req.params.roomId, req.user._id)));
 const toggleLock     = asyncHandler(async (req, res) => sendSuccess(res, await partyService.toggleLock(req.params.roomId, req.user._id)));
 const saveSyncState  = asyncHandler(async (req,res) => sendSuccess(res, await partyService.saveSyncState(req.params.roomId,req.body)))
+const inviteUsers    = asyncHandler(async (req, res) => sendSuccess(res, await partyService.inviteParticipants(req.params.roomId, req.user._id, req.body.userIds || [])))
 
-module.exports = { createRoom, getRoom, getPublic, getMyParties, closeRoom, toggleLock,saveSyncState };
+module.exports = { createRoom, getRoom, getPublic, getMyParties, closeRoom, toggleLock, saveSyncState, inviteUsers };

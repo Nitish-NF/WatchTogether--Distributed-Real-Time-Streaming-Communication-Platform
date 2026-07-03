@@ -371,15 +371,30 @@ export default function WatchParty() {
   // ── SOCKET EVENTS ─────────────────────────────────────────
   useEffect(() => {
     const handleSyncEvent  = (event) => setSyncEvent(event ? { ...event, receivedAt: Date.now() } : null);
+    // Participant records now persist across joins/leaves (invited users may
+    // already be in the list with isPresent=false). Rather than push/filter,
+    // we flip isPresent on the existing record when one exists.
     const handleUserJoined = ({ participant }) =>
-      setParticipants(prev =>
-        prev.find(p => p._id?.toString() === participant._id?.toString())
-          ? prev : [...prev, participant]
-      );
+      setParticipants(prev => {
+        const idx = prev.findIndex(p => p._id?.toString() === participant._id?.toString());
+        if (idx === -1) return [...prev, { ...participant, isPresent: true }];
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...participant, isPresent: true };
+        return next;
+      });
     const handleUserLeft  = ({ userId }) =>
-      setParticipants(prev => prev.filter(p => p._id?.toString() !== userId?.toString()));
+      setParticipants(prev => prev.map(p =>
+        p._id?.toString() === userId?.toString() ? { ...p, isPresent: false } : p
+      ));
     const handleKicked    = ({ roomId: kickedRoom }) => {
       if (kickedRoom === roomId) { toast.error('You have been removed from the party.'); navigate('/'); }
+    };
+    // The server rejects join_room (e.g. private room without an invitation,
+    // or a previously-kicked user) with an 'error' event instead of a hard
+    // disconnect — surface that and send the user back.
+    const handleJoinError = ({ message }) => {
+      toast.error(message || 'Unable to join this party');
+      navigate('/');
     };
     const handleUserMuted = ({ userId: mutedId }) => {
       if (isRemoteUpdate.current) return;
@@ -396,6 +411,7 @@ export default function WatchParty() {
     socket.on('user_left',    handleUserLeft);
     socket.on('kicked',       handleKicked);
     socket.on('user_muted',   handleUserMuted);
+    socket.on('error',        handleJoinError);
     return () => {
       socket.off('chat_message', handleNewMessage);
       socket.off('sync_event',   handleSyncEvent);
@@ -403,6 +419,7 @@ export default function WatchParty() {
       socket.off('user_left',    handleUserLeft);
       socket.off('kicked',       handleKicked);
       socket.off('user_muted',   handleUserMuted);
+      socket.off('error',        handleJoinError);
     };
   }, [roomId, user?._id, navigate, handleNewMessage]);
 
@@ -482,14 +499,21 @@ export default function WatchParty() {
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>;
 
-  const participantCount  = participants.length;
+  // Participant records now persist for invited-but-not-yet-joined users
+  // (isPresent=false) and for users who joined earlier and disconnected.
+  // Only count/render people who are actually online right now; invited
+  // users show up in a separate "invited" section of the panel.
+  const onlineParticipants = participants.filter(p => p.isPresent && !p.isKicked);
+  const invitedNotJoined   = participants.filter(p => !p.isPresent && !p.isKicked && p.joinedByInvite);
+  const participantCount   = onlineParticipants.length;
+
   // hostParticipant: prefer from participants list, but always fall back to
   // current user object so the host tile is NEVER missing on their own screen.
-  const hostParticipantFromList = participants.find(p => p._id?.toString() === hostId?.toString());
+  const hostParticipantFromList = onlineParticipants.find(p => p._id?.toString() === hostId?.toString());
   const hostParticipant = hostParticipantFromList
     ?? (isHost ? { ...user, isHost: true } : null);
 
-  const otherParticipants   = participants.filter(p => p._id?.toString() !== hostId?.toString());
+  const otherParticipants   = onlineParticipants.filter(p => p._id?.toString() !== hostId?.toString());
   const orderedParticipants = hostParticipant ? [hostParticipant, ...otherParticipants] : otherParticipants;
 
   // ── Shared: build ordered cam tiles (host first) ──────────
@@ -669,6 +693,29 @@ export default function WatchParty() {
             </div>
           );
         })}
+
+        {isHost && invitedNotJoined.length > 0 && (
+          <>
+            <div className="party-participants-subheader" style={{ fontSize: '11px', color: 'var(--text3)', margin: '10px 0 4px' }}>
+              Invited · not here yet
+            </div>
+            {invitedNotJoined.map(p => {
+              const pid = p._id?.toString();
+              return (
+                <div key={pid} className="party-participant-row" style={{ opacity: 0.5 }}>
+                  <div
+                    className="party-participant-avatar"
+                    style={{ background: ['#b71c1c','#1a237e','#1b5e20','#4a148c','#e65100'][(p.username?.charCodeAt(0) || 0) % 5] }}
+                  >
+                    {p.username?.slice(0, 2).toUpperCase()}
+                  </div>
+                  <span className="party-participant-name">{p.username}</span>
+                  <span className="party-participant-you">invited</span>
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
     </div>
   );

@@ -64,7 +64,12 @@ const initSocket = (httpServer) => {
         if (hostId.toString() === user._id.toString()) {
           await partyService.markHostReconnected(roomId);
         }
-        await partyService.addParticipant(roomId, user);
+
+        // addParticipant enforces private-room invitation rules and throws
+        // (statusCode 403) if this user has no participant record on a
+        // private room, or was previously kicked. We only join the socket
+        // room / mark them present once that succeeds.
+        const updatedRoom = await partyService.addParticipant(roomId, user);
         socket.join(roomId);
 
         if (room.conversationId) {
@@ -73,6 +78,7 @@ const initSocket = (httpServer) => {
         }
 
         socket.emit('sync_event', room.syncState);
+        socket.emit('room_state', { participants: updatedRoom.participants });
         socket.to(roomId).emit('user_joined', {
           participant: { _id: user._id, username: user.username },
         });
@@ -96,6 +102,8 @@ const initSocket = (httpServer) => {
 
     socket.on('leave_room', async ({ roomId }) => {
       socket.leave(roomId);
+      // Marks the participant absent (isPresent=false) but keeps their
+      // record so they're recognized as "already invited/joined" on return.
       await partyService.removeParticipant(roomId, user._id);
       socket.to(roomId).emit('user_left', { userId: user._id });
       logger.info(`[Room] ${user.username} left room ${roomId}`);
@@ -163,7 +171,9 @@ const initSocket = (httpServer) => {
     });
 
     socket.on('kick_user', async ({ roomId, targetId }) => {
-      await partyService.removeParticipant(roomId, targetId);
+      // kickParticipant sets isKicked=true (not just isPresent=false) so the
+      // user can no longer rejoin the room, unlike a normal leave/disconnect.
+      await partyService.kickParticipant(roomId, targetId);
       io.to(`user:${targetId}`).emit('kicked', { roomId });
       io.to(roomId).emit('user_left', { userId: targetId });
     });
@@ -191,6 +201,8 @@ const initSocket = (httpServer) => {
       for (const room of socket.rooms) {
         if (room === socket.id || room === `user:${user._id}`) continue;
         if (room.startsWith('conversation:')) continue;
+        // Marks isPresent=false; the participant record is kept so a
+        // reconnect is recognized as the same invited/returning user.
         await partyService.removeParticipant(room, user._id).catch(() => {});
         socket.to(room).emit('user_left', { userId: user._id });
       }

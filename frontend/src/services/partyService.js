@@ -33,6 +33,16 @@ const partyService = {
     const res = await API.get('/watchparty/mine');
     return res.data.data;
   },
+
+  /**
+   * Host-only: register invited users on the room before they join.
+   * For private rooms this is what allows them past the join gate later —
+   * see the updated participant-management design.
+   */
+  inviteParticipants: async (roomId, userIds = []) => {
+    const res = await API.post(`/watchparty/${roomId}/invite`, { userIds });
+    return res.data.data;
+  },
 };
 
 export default partyService;
